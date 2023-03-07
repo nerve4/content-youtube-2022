@@ -1,0 +1,129 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: Enterprise Ready, Single Node Nextcloud with S3 External Storage
+
+Parameters:
+
+  EC2KeyName:
+    Type: String
+    Description: Name of the EC2 key pair 
+
+  IPforSSH:
+    Type: String
+    Description: Name of the EC2 key pair
+    Default: 0.0.0.0/0
+
+
+  S3BucketName:
+    Type: String
+    Description: Name of the NextCloud S3 bucket
+    Default: test-nextcloud-bucket-001-nerve4
+
+
+Resources:
+
+  NCS3AdminUser:
+    Type: AWS::IAM::User
+    Properties:
+      Tags:
+      -
+        Key: Name
+        Value: NextCloud
+      UserName: !Sub '${S3BucketName}'
+
+  NCS3BucketPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: NextCloudS3Policy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 's3:GetBucketLocation'
+              - 's3:ListAllMyBuckets'
+            Resource: 'arn:aws:s3:::*'
+          - Effect: Allow
+            Action:
+              - 's3:*'
+            Resource:
+              - !Sub 'arn:aws:s3:::${S3BucketName}'
+              - !Sub 'arn:aws:s3:::${S3BucketName}/*'
+      Users:
+        - !Ref NCS3AdminUser
+
+  NCVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 172.31.0.0/16
+      Tags:
+      -
+        Key: Name
+        Value: NextCloud
+      
+  NCInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      -
+        Key: Name
+        Value: NextCloud
+
+  NCSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref NCVpc
+      CidrBlock: 172.31.32.0/20
+      AvailabilityZone: "us-east-1a"
+      Tags:
+      - 
+        Key: Name
+        Value: NextCloud
+
+  NCIG:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId:
+        Ref: "NCInternetGateway"
+      VpcId:
+        Ref: "NCVpc"
+
+  NCVPCEC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http/https/ssh access to the instance
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Sub '${IPforSSH}'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+      -
+        Key: Name
+        Value: NextCloud
+  
+  SingleEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: "ami-0dba2cb6798deb6d8"
+      InstanceType: "t2.medium"
+      KeyName: !Sub '${EC2KeyName}'
+      SecurityGroups: [!Ref 'NCVPCEC2SecurityGroup']
+      Tags: 
+        -
+          Key: Name
+          Value: NextCloud
+
+  AssignElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref SingleEC2Instance
